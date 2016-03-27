@@ -13,6 +13,18 @@ DigitalOut sw_p_2(dp4);
 DigitalOut sw_m_1(dp10);
 DigitalOut sw_m_2(dp6);
 
+struct measure_task_t {
+	bool completed = 1;
+	bool interrupted = 0;
+	uint32_t start;
+	uint32_t end;
+	uint32_t step;
+	uint8_t  avg_count;
+};
+volatile measure_task_t measure_task;
+
+void process_serial();
+
 // RFC = INM
 // RF1 = BLN
 // RF2 = GND
@@ -96,7 +108,13 @@ CircularBuffer<char, 80> serial_buffer;
 //}
 
 constexpr uint16_t SETTLING_TIME = 500;
-void measure(uint32_t start, uint32_t end, uint32_t step, uint8_t avg_count) {
+void measure() {
+	uint32_t start    = measure_task.start;
+	uint32_t end      = measure_task.end;
+	uint32_t step     = measure_task.step;
+	uint8_t avg_count = measure_task.avg_count;
+	measure_task.interrupted = 0;
+
 	// power on ad9851
 	ad9851.reset();
 	for (uint32_t freq = start; freq <= end; freq += step) {
@@ -120,10 +138,93 @@ void measure(uint32_t start, uint32_t end, uint32_t step, uint8_t avg_count) {
 			e_diff += adc.read_u16();
 
 		serial.printf("<MEAS>,%d,%d,%d,%d\n", freq, e_ref / avg_count, e_load / avg_count, e_diff / avg_count);
+		if (measure_task.interrupted) break;
 	}
 	serial.printf("<MEAS>,END\n");
 	ad9851.powerdown();
 }
+
+void process_serial() {
+	while (serial.readable()) {
+		char c = serial.getc();
+		serial.putc(c);
+		if (c == 0x0D) continue; // ignore CR
+		if (c == 0x0A) { // treat LF as line end
+			static char line[80];
+			int i = 0;
+			for (char c; serial_buffer.pop(c); i++) {
+				line[i] = c;
+			}
+			line[i] = '\0';
+			serial_buffer.reset();
+
+			serial.printf("COMMAND: %s\n", line);
+
+			char* tokens[10];
+			tokens[0] = line;
+			for (size_t i = 0, t = 0, len = strlen(line); i < len; i++) {
+				if (line[i] == ',') {
+					line[i] = 0;
+					tokens[++t] = line + i + 1;
+					if (t < 10) {
+						continue;
+					} else {
+						break;
+					}
+				}
+			}
+
+			if (strcmp(tokens[0], "MEAS") == 0) {
+				if (strcmp(tokens[1], "END") == 0) {
+					measure_task.interrupted = 1;
+					return;
+				}
+				if (!measure_task.completed) {
+					serial.printf("ALREADY RUNNING MEASURE\n");
+					return;
+				}
+
+				uint32_t start     = std::atoi(tokens[1]);
+				uint32_t end       = std::atoi(tokens[2]);
+				uint32_t step      = std::atoi(tokens[3]);
+				uint8_t  avg_count = std::atoi(tokens[4]);
+				if (avg_count <= 0) {
+					avg_count = 1;
+				}
+				if (start < end && step > 0) {
+					measure_task.start = start;
+					measure_task.end = end;
+					measure_task.step = step;
+					measure_task.avg_count = avg_count;
+					measure_task.completed = 0;
+				} else {
+					serial.printf("INVALID ARGUMENT start=%s end=%s step=%s\n", tokens[1], tokens[2], tokens[3]);
+				}
+			} else
+			if (strcmp(tokens[0], "OSC") == 0) {
+				if (strcmp(tokens[1], "ON") == 0) {
+					ad9851.reset();
+					uint32_t freq = std::atoi(tokens[2]);
+					if (freq > 0) {
+						serial.printf("<OSC>,ON,%d\n", freq);
+						ad9851.set_frequency(freq);
+					} else {
+						serial.printf("INVALID ARGUMENT freq=%d\n", freq);
+					}
+				} else {
+					serial.printf("<OSC>,OFF\n");
+					ad9851.powerdown();
+				}
+			} else {
+				serial.printf("UNKOWN COMMAND %s\n", tokens[0]);
+			}
+			continue;
+		}
+		serial_buffer.push(c);
+	}
+}
+
+
 
 int main() {
 	serial.baud(115200);
@@ -132,72 +233,15 @@ int main() {
 	ad9851.powerdown();
 
 	serial.printf("init\n");
+	serial.attach( []() {
+		process_serial();
+	});
 
 	for (;;) {
-		while (serial.readable()) {
-			char c = serial.getc();
-			serial.putc(c);
-			if (c == 0x0D) continue; // ignore CR
-			if (c == 0x0A) { // treat LF as line end
-				static char line[80];
-				int i = 0;
-				for (char c; serial_buffer.pop(c); i++) {
-					line[i] = c;
-				}
-				line[i] = '\0';
-				serial_buffer.reset();
-
-				serial.printf("GOT: %s\n", line);
-
-				char* tokens[10];
-				tokens[0] = line;
-				for (size_t i = 0, t = 0, len = strlen(line); i < len; i++) {
-					if (line[i] == ',') {
-						line[i] = 0;
-						tokens[++t] = line + i + 1;
-						if (t < 10) {
-							continue;
-						} else {
-							break;
-						}
-					}
-				}
-
-				if (strcmp(tokens[0], "MEAS") == 0) {
-					uint32_t start     = std::atoi(tokens[1]);
-					uint32_t end       = std::atoi(tokens[2]);
-					uint32_t step      = std::atoi(tokens[3]);
-					uint8_t  avg_count = std::atoi(tokens[4]);
-					if (avg_count <= 0) {
-						avg_count = 1;
-					}
-					if (start < end && step > 0) {
-						measure(start, end, step, avg_count);
-					} else {
-						serial.printf("INVALID ARGUMENT start=%s end=%s step=%s\n", tokens[1], tokens[2], tokens[3]);
-					}
-				} else
-				if (strcmp(tokens[0], "OSC") == 0) {
-					if (strcmp(tokens[1], "ON") == 0) {
-						ad9851.reset();
-						uint32_t freq = std::atoi(tokens[2]);
-						if (freq > 0) {
-							serial.printf("<OSC>,ON,%d\n", freq);
-							ad9851.set_frequency(freq);
-						} else {
-							serial.printf("INVALID ARGUMENT freq=%d\n", freq);
-						}
-					} else {
-						serial.printf("<OSC>,OFF\n");
-						ad9851.powerdown();
-					}
-				} else {
-					serial.printf("UNKOWN COMMAND %s\n", tokens[0]);
-				}
-				continue;
-			}
-			serial_buffer.push(c);
+		if (!measure_task.completed) {
+			measure();
 		}
+		sleep();
 
 //		uint16_t bat = static_cast<uint16_t>(battery.read() * 5000);
 //		serial.printf("bat = %d\n", bat);
