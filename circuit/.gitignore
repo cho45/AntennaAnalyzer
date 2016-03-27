@@ -1,0 +1,7 @@
+*.s#*
+*.b#*
+*.tap
+*.gcode
+*.job
+*.pro
+*.zip

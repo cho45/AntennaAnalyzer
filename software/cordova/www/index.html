@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<!--
+		  Customize this policy to fit your own app's needs. For more guidance, see:
+		  https://github.com/apache/cordova-plugin-whitelist/blob/master/README.md#content-security-policy
+		  Some notes:
+		  * gap: is required only on iOS (when using UIWebView) and is needed for JS->native communication
+		  * https://ssl.gstatic.com is required only on Android and is needed for TalkBack to function properly
+		  * Disables use of inline scripts in order to mitigate risk of XSS vulnerabilities. To change this:
+		  * Enable inline JS: add 'unsafe-inline' to default-src
+		-->
+		<meta http-equiv="Content-Security-Policy" content="
+			default-src
+				'self'
+				data:
+				gap:
+				https://ssl.gstatic.com
+				https://fonts.gstatic.com
+				'unsafe-eval'
+				'unsafe-inline'
+				;
+			style-src
+				'self'
+				https://fonts.googleapis.com
+				data:
+				'unsafe-inline'
+				;
+			media-src
+				*
+				;
+		">
+		<meta name="format-detection" content="telephone=no">
+		<meta name="msapplication-tap-highlight" content="no">
+		<meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width">
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+		<title>Analyzer</title>
+		<script src="bower_components/webcomponentsjs/webcomponents-lite.min.js"></script>
+        <script type="text/javascript" src="cordova.js"></script>
+	</head>
+	<body style="margin: 0; padding: 0; height: 100vh; width: 100vw; background: #00bcd4">
+
+		<style>
+		@-webkit-keyframes spin{
+			0%{-webkit-transform: rotate(0deg);}
+			100%{-webkit-transform: rotate(1080deg);}
+		}
+		@keyframes spin{
+			0%{transform: rotate(0deg);}
+			100%{transform: rotate(1080deg);}
+		}
+		.loading{
+			-webkit-box-sizing: border-box;
+			-moz-box-sizing: border-box;
+			-ms-box-sizing: border-box;
+			box-sizing: border-box;
+			display: block;
+			width: 36px;
+			height: 36px;
+			margin: auto;
+			border-width: 4px;
+			border-style: solid;
+			border-color: transparent #fbfbfb;
+			border-radius: 18px;
+			-webkit-animation: spin 2s ease-in-out infinite;
+			animation: spin 2s ease-in-out infinite;
+		}
+		</style>
+
+		<div class='loading'></div>
+
+		<style>
+			.loading {
+				margin: 100px auto;
+			}
+		</style>
+
+		<my-app></my-app>
+
+		<script>
+			requestAnimationFrame(function () {
+				var link = document.createElement('link');
+				link.rel = "import";
+				link.href = "src/app.html";
+				link.addEventListener('load', function () {
+					var loading = document.querySelector('.loading');
+					loading.parentNode.removeChild(loading);
+				});
+				document.body.appendChild(link);
+			});
+		</script>
+	</body>
+</html>
