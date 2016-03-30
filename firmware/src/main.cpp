@@ -14,12 +14,12 @@ DigitalOut sw_m_1(dp10);
 DigitalOut sw_m_2(dp6);
 
 struct measure_task_t {
-	bool completed = 1;
-	bool interrupted = 0;
-	uint32_t start;
-	uint32_t end;
-	uint32_t step;
-	uint8_t  avg_count;
+	volatile bool completed = 1;
+	volatile bool interrupted = 0;
+	volatile uint32_t start;
+	volatile uint32_t end;
+	volatile uint32_t step;
+	volatile uint8_t  avg_count;
 };
 volatile measure_task_t measure_task;
 
@@ -240,6 +240,7 @@ int main() {
 	for (;;) {
 		if (!measure_task.completed) {
 			measure();
+			measure_task.completed = 1;
 		}
 		sleep();
 
