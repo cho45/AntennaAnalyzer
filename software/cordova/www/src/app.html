@@ -7,6 +7,7 @@
 <link rel="import" href="../bower_components/iron-icons/hardware-icons.html">
 <link rel="import" href="../bower_components/iron-icons/image-icons.html">
 <link rel="import" href="../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="../bower_components/iron-icons/notification-icons.html">
 <link rel="import" href="../bower_components/iron-localstorage/iron-localstorage.html">
 <link rel="import" href="../bower_components/iron-pages/iron-pages.html">
 <link rel="import" href="../bower_components/paper-button/paper-button.html">
@@ -48,6 +49,10 @@
 
 		[hide] {
 			display: none;
+		}
+
+		#status iron-icon {
+			margin: 0 8px 0 0;
 		}
 
 
@@ -115,8 +120,9 @@
 						-->
 						AntennaAnalyzer</h1>
 				</div>
-				<paper-menu selected="{{selectedMenu}}" attr-for-selected="data-id">
-					<paper-item data-id="measure">Measure</paper-item>
+				<paper-menu selected="{{selectedMenu}}" attr-for-selected="data-id" id="mainMenu">
+					<paper-item data-id="measure" disabled="{{!equals(status.bluetooth, 'connected')}}">Measure</paper-item>
+					<paper-item data-id="ranges">Ranges</paper-item>
 					<paper-item data-id="settings">Settings</paper-item>
 				</paper-menu>
 				<div style="color: #bdbdbd; padding: 8px 16px; border-top: 1px solid #ddd">
@@ -139,19 +145,28 @@
 			<paper-header-panel class="main" main mode="waterfall">
 				<paper-toolbar>
 					<paper-icon-button icon="menu" paper-drawer-toggle></paper-icon-button>
-					<div id="status" class="title" class$="">
-						<iron-icon icon="{{conditional(isConnected, 'image:flash-on', 'image:flash-off')}}"></iron-icon>
+					<div id="status" class="title">
+						<iron-icon icon="{{bluetoothStatusIcon(status.bluetooth)}}"></iron-icon>
 						<span>{{status.state}}</span>
+
+						<span hide$="{{equals(status.measure, 'ready')}}">
+							<iron-icon icon="notification:wifi"></iron-icon>
+							<span>{{status.measure_progress}}</span>
+						</span>
 					</div>
 					<div class="flex">
 					</div>
 
-					<paper-button noink class="action-cont" on-tap="cont">
+					<!-- paper-button noink class="action-cont" on-tap="cont" hide$="{{!equals(selectedMenu, 'measure')}}">
 						<iron-icon icon="av:play-arrow"></iron-icon>
+					</paper-button -->
+
+					<paper-button noink class="action-refresh" on-tap="measureAllRanges" hide$="{{!equals(selectedMenu, 'measure')}}">
+						<iron-icon icon="icons:cached"></iron-icon>
 					</paper-button>
 
-					<paper-button noink class="action-refresh" on-tap="measureAllRanges">
-						<iron-icon icon="icons:cached"></iron-icon>
+					<paper-button noink class="action-refresh" on-tap="okRanges" hide$="{{!equals(selectedMenu, 'ranges')}}">
+						OK
 					</paper-button>
 
 
@@ -167,6 +182,45 @@
 						</div>
 					</div><!-- #mainContent -->
 
+					<div data-id="ranges" id="rangesContent" class="fit layout vertical" style="background: #fff">
+						<div class="flex relative" style="height: 600px">
+							<div class="fit layout vertical relative" style="padding: 16px">
+								<!-- 1つのときと複数のときとでUIを変える -->
+								<h2>Range</h2>
+								<template is="dom-repeat" items="{{currentRanges}}" as="range">
+									<div class="range" data-range-index$="{{index}}">
+										<div class="layout horizontal">
+											<paper-input class="flex" label="Start" placeholder="" always-float-label value="{{range.start}}"></paper-input>
+											<paper-input class="flex" label="Stop" placeholder="" always-float-label value="{{range.stop}}"></paper-input>
+
+											<paper-menu-button>
+												<paper-button noink class="dropdown-trigger">
+													<iron-icon icon="icons:list"></iron-icon>
+													Presets
+												</paper-button>
+												<paper-menu class="dropdown-content" on-tap="setPreset">
+													<template is="dom-repeat" items="{{bands}}">
+														<paper-item data-start$="{{item.start}}" data-stop$="{{item.stop}}">{{item.name}}</paper-item>
+													</template>
+												</paper-menu>
+											</paper-menu-button>
+										</div>
+										<div class="layout horizontal">
+											<paper-button noink on-tap="rangeWiden">
+												<iron-icon icon="icons:unfold-more"></iron-icon>
+												Widen
+											</paper-button>
+											<paper-button noink on-tap="rangeNarrow">
+												<iron-icon icon="icons:unfold-less"></iron-icon>
+												Narrow
+											</paper-button>
+										</div>
+									</div>
+								</template>
+							</div>
+						</div>
+					</div>
+
 					<div data-id="settings" id="settingsContent" class="fit layout vertical" style="background: #fff; padding: 0 16px">
 						<paper-tabs class="" selected="{{settingsTab}}" noink no-slide style="margin: 0 -16px">
 							<paper-tab>Connection</paper-tab>
@@ -175,7 +229,13 @@
 							<iron-pages class="fit flex layout vertical relative" selected="{{settingsTab}}">
 								<!-- Connection -->
 								<div class="flex vertical">
-									<h3>Bluetooth</h3>
+									<h3 class="layout horizontal">
+										<span>Bluetooth</span>
+										<span class="flex"></span>
+										<paper-button noink class="action-refresh" on-tap="updateBluetoothList">
+											<iron-icon icon="icons:cached"></iron-icon>
+										</paper-button>
+									</h3>
 									<div style="margin: 0 -16px" on-tap="setBluetoothDevice">
 										<template is="dom-repeat" items="{{bluetoothList}}">
 											<paper-item data-name$="{{item.name}}" data-id$="{{item.id}}">

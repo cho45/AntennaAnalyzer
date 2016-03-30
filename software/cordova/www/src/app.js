@@ -11,18 +11,14 @@ Polymer({
 		status : {
 			type: Object,
 			value: {
-				state: 'init'
+				bluetooth: 'notconfigured',
+				measure: 'ready'
 			}
 		},
 
 		config : {
 			type: Object,
 			value: null
-		},
-
-		isConnected: {
-			type: Boolean,
-			value: false
 		},
 
 		bluetoothList : {
@@ -90,6 +86,11 @@ Polymer({
 	},
 
 	ready : function () {
+		this.set('selectedMenu', location.hash.substring(1) || 'measure');
+		this.$.mainMenu.addEventListener('iron-select', (e) => {
+			console.log('iron-items.changed');
+			this.$.drawerPanel.closeDrawer();
+		});
 		// this.openDialog(this.$.inputRange);
 	},
 
@@ -117,19 +118,18 @@ Polymer({
 	},
 
 	connectBluetooth : function () {
-		this.set('status.state', 'connecting...');
+		this.set('status.bluetooth', 'connecting');
 		if (!this.settings.bluetooth.id) {
 			console.log('bluetooth setting is nothing');
-			this.set('status.state', '');
-			this.set('selectedMenu', 1);
+			this.set('status.bluetooth', 'notconfigured');
+			this.set('selectedMenu', "settings");
 			return;
 		}
 		console.log('connecting...');
 		// bluetoothSerial.disconnect();
-		bluetoothSerial.connect("00:06:66:6C:68:BF", () => {
+		bluetoothSerial.connect(this.settings.bluetooth.id, () => {
 			console.log('connected');
-			this.set('isConnected', true);
-			this.set('status.state', '');
+			this.set('status.bluetooth', 'connected');
 
 			this.push('currentRanges', {
 				start : 6.5e6,
@@ -139,11 +139,13 @@ Polymer({
 				canvas: this.$.canvas
 			});
 
-			this.measureAllRanges();
+			// this.measureAllRanges();
 
 		}, (error) => {
-			this.set('status.state', error);
+			this.set('status.bluetooth', 'error');
+			this.set('status.bluetooth_error', error);
 			console.log(error);
+			alert(error);
 			setTimeout(() => {
 				this.connectBluetooth();
 			}, 1000);
@@ -160,15 +162,17 @@ Polymer({
 
 	measureRange : function (range) {
 		range.lastData = [];
-		this.set('status.state', 'measuring...');
+		this.set('status.measure', 'start');
+		this.set('status.measure_progress', '0%');
 		return this._doScan(range.start, range.stop, range.step, (data) => {
 			var percent = (data.freq - range.start) / (range.stop - range.start);
-			this.set('status.state', (percent * 100).toFixed(0) + '%');
+			this.set('status.measure', 'progress');
+			this.set('status.measure_progress', (percent * 100).toFixed(0) + '%');
 			range.lastData.push(data);
 			this.redrawGraph(range);
 		}).
 		then( () => {
-			this.set('status.state', '');
+			this.set('status.measure', 'ready');
 		});
 	},
 
@@ -346,17 +350,6 @@ Polymer({
 		}
 	},
 
-	bandSelect : function (e) {
-		var target = Polymer.dom(e).path.filter(function (i) {
-			return i.getAttribute && i.getAttribute('data-start');
-		})[0];
-		var start = +target.getAttribute('data-start');
-		var stop = +target.getAttribute('data-stop');
-		var step = (stop - start) / this.resolution;
-		this.measure(start, stop, step);
-
-	},
-
 	openDialog : function (dialog) {
 		dialog.open();
 		dialog.style.visibility = 'hidden';
@@ -375,21 +368,98 @@ Polymer({
 		};
 	},
 
+	rangeWiden : function (e) {
+		var rangeIndex = +this.getDataArgFromEvent(e, 'data-range-index');
+		console.log(rangeIndex);
+
+		var range = this.currentRanges[rangeIndex];
+
+		var freqRange = range.stop - range.start;
+		var center    = range.start + (freqRange / 2);
+		var newRange  = freqRange * 2;
+
+		var newStart = center - (newRange / 2);
+		var newStop  = center + (newRange / 2);
+
+		this.setRange(rangeIndex, newStart, newStop);
+	},
+
+	rangeNarrow : function (e) {
+		var rangeIndex = +this.getDataArgFromEvent(e, 'data-range-index');
+		console.log(rangeIndex);
+
+		var range = this.currentRanges[rangeIndex];
+
+		var freqRange = range.stop - range.start;
+		var center    = range.start + (freqRange / 2);
+		var newRange  = freqRange / 2;
+
+		var newStart = center - (newRange / 2);
+		var newStop  = center + (newRange / 2);
+
+		this.setRange(rangeIndex, newStart, newStop);
+	},
+
+	setPreset : function (e) {
+		var rangeIndex = +this.getDataArgFromEvent(e, 'data-range-index');
+		var newStart = +this.getDataArgFromEvent(e, "data-start");
+		var newStop  = +this.getDataArgFromEvent(e, "data-stop");
+		this.setRange(rangeIndex, newStart, newStop);
+	},
+
+	okRanges : function (e) {
+		this.set('selectedMenu', "measure");
+		this.measureAllRanges();
+	},
+
+	setRange : function (rangeIndex, newStart, newStop, newStep) {
+		if (newStart < 0) {
+			newStart = 0;
+		}
+		if (newStop > 70e6) {
+			newStop = 70e6;
+		}
+
+		var newRange = newStop - newStart;
+		if (!newStep) {
+			newStep  = newRange / this.resolution;
+		}
+		this.set('currentRanges.' + rangeIndex + '.start', newStart);
+		this.set('currentRanges.' + rangeIndex + '.stop', newStop);
+		this.set('currentRanges.' + rangeIndex + '.step', newStep);
+	},
+
 	setBluetoothDevice : function (e) {
-		var target = Polymer.dom(e).path.filter(function (i) {
-			return i.getAttribute && i.getAttribute('data-id');
-		})[0];
-		console.log(target);
-		var id = target.getAttribute('data-id');
-		var name = target.getAttribute('data-name');
+		var id = this.getDataArgFromEvent(e, 'data-id');
+		var name = this.getDataArgFromEvent(e, 'data-name');
 		if (id && confirm("Connecting to " + name + "?")) {
 			this.set('settings.bluetooth', {
 				id : id,
 				name: name
 			});
-			this.set("selectedMenu", 0);
+			this.set('selectedMenu', "measure");
 		}
 		e.preventDefault();
+	},
+
+	getDataArgFromEvent : function (e, name) {
+		var target = Polymer.dom(e).path.filter(function (i) {
+			return i.getAttribute && i.getAttribute(name);
+		})[0];
+		if (!target) {
+			return null;
+		}
+		return target.getAttribute(name);
+	},
+
+	bluetoothStatusIcon : function (status) {
+		switch (status) {
+		case 'connecting' : return 'device:bluetooth-searching';
+		case 'notconfigured' : return 'device:bluetooth-disabled';
+		case 'connected' : return 'device:bluetooth-connected';
+		case 'error' : return 'device:bluetooth-disabled';
+		default : return 'device:bluetooth-disabled';
+		}
 	},
 
 	bind: function (id) { return id },
